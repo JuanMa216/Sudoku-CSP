@@ -23,6 +23,8 @@ class SudokuCSP:
         for group in self.varsGroups:
             self.constraints.append((self._all_dif, group, "AllDif"))
             self.constraints.append((self._exc_value, group, "ExcVal"))
+            self.constraints.append((self._naked_subsets, group, "NakedSubsets"))
+            #self.constraints.append((self._hidden_subsets, group, "HiddenSubsets"))
         #Cargamos el tablero desde el archivo
     def load_board(self, board_filepath):
         try:
@@ -114,6 +116,104 @@ class SudokuCSP:
                     anyChange = True
         return anyChange
 
+    def _naked_subsets(self, vars_group, verbose):
+        #Logica para la restricción 'Naked Subsets': Si N celdas en un grupo tienen el mismo dominio de N valores,
+        #entonces esos valores pueden eliminarse de los dominios de las otras celdas del grupo.
+        anyChange = False
+        # 1. Agrupar variables por sus dominios (solo celdas no resueltas)
+        domain_map = {} 
+        for var in vars_group: # Iteramos sobre las variables en el grupo
+            domain_len = len(self.var_doms[var]) # Longitud del dominio de la variable
+            # Solo nos interesan celdas con dominios pequeños (N > 1)
+            if domain_len > 1:
+                # Usamos un tuple (inmutable) del dominio ordenado como clave
+                domain_tuple = tuple(sorted(list(self.var_doms[var]))) # Convertir el dominio a una tupla ordenada
+                if domain_tuple not in domain_map: # Si no existe la clave, la inicializamos
+                    domain_map[domain_tuple] = [] # Lista para las variables con este dominio
+                domain_map[domain_tuple].append(var)
+
+        # 2. Iterar sobre los dominios agrupados
+        for domain_tuple, cells_with_domain in domain_map.items():
+            domain = set(domain_tuple)
+            N = len(domain) # Tamaño del dominio (ej: 2 para {2, 5})
+            K = len(cells_with_domain) # Número de celdas con ese dominio
+
+            # 3. Comprobar la regla: Si N == K (ej: 2 celdas tienen el mismo dominio de 2 valores)
+            if N == K and N > 1:
+                # ¡Encontramos un Naked Subset!
+                domain_to_remove = domain
+                cells_to_keep = set(cells_with_domain) # Celdas que tienen el dominio
+                
+                if verbose:
+                    print(f"  [Dominios Iguales] Encontrado Naked Subset (N={N})!")
+                    print(f"    -> Celdas: {cells_to_keep}")
+                    print(f"    -> Dominio: {domain_to_remove}")
+
+                # 4. Eliminar este dominio de todas las *otras* celdas del grupo
+                for var in vars_group:
+                    # Si 'var' no es una de las celdas del subset
+                    if var not in cells_to_keep:
+                        # Encontrar los valores que se pueden eliminar
+                        values_to_discard = self.var_doms[var].intersection(domain_to_remove)
+                        
+                        if values_to_discard:
+                            if verbose:
+                                print(f"    -> Eliminando {values_to_discard} del dominio de {var}. Dominio anterior: {self.var_doms[var]}")
+                            
+                            self.var_doms[var].difference_update(values_to_discard)
+                            anyChange = True
+        
+        return anyChange
+
+    def _hidden_subsets(self, vars_group, verbose):
+        #Logica para la restricción 'Hidden Subsets': Si N números solo pueden aparecer en N celdas de un grupo,
+        #entonces esos números deben ser los únicos en esas celdas.
+        anyChange = False
+        # 1. Mapear cada número (1-9) al conjunto de celdas donde aparece
+        num_to_cells = {}
+        for num in range(1, 10): 
+            cells_for_num = set() # Celdas donde 'num' aparece en el dominio
+            for var in vars_group: # Iteramos sobre las variables en el grupo
+                # Solo consideramos celdas no resueltas
+                if num in self.var_doms[var] and len(self.var_doms[var]) > 1: # Si 'num' está en el dominio y la celda no está resuelta
+                    cells_for_num.add(var) # Añadimos la celda a la lista
+            num_to_cells[num] = cells_for_num
+
+        # 2. Iterar para N=2 (Pairs), N=3 (Triples), N=4 (Quads)
+        for N in range(2, 5): 
+            # 3. Iterar sobre todas las combinaciones de N números
+            for num_set in it.combinations(range(1, 10), N):
+                num_set = set(num_set) # (1, 2) -> {1, 2}
+                # 4. Encontrar la unión de celdas para esta combinación de números
+                cell_union = set()
+                for num in num_set:
+                    cell_union.update(num_to_cells[num]) # Unión de celdas donde aparecen estos números
+                # 5. Comprobar la regla: Si el tamaño de la unión de celdas es N
+                if len(cell_union) == N:
+                    # Encontramos un Hidden Subset
+                    # cell_union = {las N celdas}
+                    # num_set = {los N números}
+                    found_this_subset = False
+                    #Eliminar todos los *otros* números de esas celdas
+                    for var in cell_union: # Iteramos sobre las celdas en la unión
+                        domain = self.var_doms[var] 
+                        vals_to_remove = domain - num_set # Valores a eliminar (los que no están en num_set)
+                        
+                        if vals_to_remove:
+                            if not found_this_subset and verbose:
+                                print(f"  [Hidden Subset] Encontrado! (N={N})")
+                                print(f"    -> Números: {num_set}")
+                                print(f"    -> Celdas: {cell_union}")
+                                found_this_subset = True
+                            
+                            if verbose:
+                                print(f"    -> Limpiando {vals_to_remove} de {var}. Dominio anterior: {self.var_doms[var]}")
+                                
+                            self.var_doms[var].difference_update(vals_to_remove)
+                            anyChange = True
+        
+        return anyChange
+
 
     #Metodo Solver con verbose
     def Consistence(self, verbose):
@@ -200,7 +300,7 @@ if __name__ == "__main__":
     
     # Define el nombre del archivo que quieres cargar
     # Asegúrate de que esté en la misma carpeta que este script.
-    board_a_cargar = "board_imposible_SD9TYJNO.txt" 
+    board_a_cargar = "board_moderado_SD3IBDMD.txt" 
 
     # 1. Crear la instancia (esto carga el tablero y define las restricciones)
     print(f"\nCargando Sudoku desde '{board_a_cargar}'...")
@@ -222,4 +322,4 @@ if __name__ == "__main__":
         print("\n¡Sudoku Resuelto exitosamente solo con propagación!")
     else:
         print("\nPropagación completada. El Sudoku no se resolvió solo con esto.")
-        print("Se necesitaría un algoritmo de Búsqueda (Backtracking) para terminarlo.")
+        print("Se necesita una búsqueda adicional para completar el Sudoku.")
