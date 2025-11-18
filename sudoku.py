@@ -23,7 +23,7 @@ class SudokuCSP:
         #Mapa de vecinos:
         self.peer_map = self.build_peer_map()
 
-        self.constraints = []
+        self.constraints = [] # Lista de tuplas (funcion, grupo de variables, nombre)
         for group in self.varsGroups:
             self.constraints.append((self._all_dif, group, "AllDif"))
             self.constraints.append((self._exc_value, group, "ExcVal"))
@@ -71,7 +71,7 @@ class SudokuCSP:
                 BoxesConstraints.append(ConstraintVars)
         return BoxesConstraints
 
-    def build_peer_map(self):
+    def build_peer_map(self): #Crea el mapa de vecinos para cada celda (filas, columnas, cajas)
         peer_map = {key: set() for key in self.cell_keys}
         for group in self.varsGroups:
             for var1 in group:
@@ -152,7 +152,7 @@ class SudokuCSP:
 
             # 3. Comprobar la regla: Si N == K (ej: 2 celdas tienen el mismo dominio de 2 valores)
             if N == K and N > 1:
-                # ¡Encontramos un Naked Subset!
+                # Encontramos un Naked Subset
                 domain_to_remove = domain
                 cells_to_keep = set(cells_with_domain) # Celdas que tienen el dominio
                 
@@ -161,7 +161,7 @@ class SudokuCSP:
                     print(f"    -> Celdas: {cells_to_keep}")
                     print(f"    -> Dominio: {domain_to_remove}")
 
-                # 4. Eliminar este dominio de todas las *otras* celdas del grupo
+                # 4. Eliminar este dominio de todas las otras celdas del grupo
                 for var in vars_group:
                     # Si 'var' no es una de las celdas del subset
                     if var not in cells_to_keep:
@@ -191,7 +191,6 @@ class SudokuCSP:
                 # Llamamos a la función directamente (ej: self._all_dif(group_vars, verbose))
                 anyChangeAux = constraint_func(group_vars, verbose) # Llamada a la función de restricción
                 # Actualiza 'anyChange' si 'anyChangeAux' es True
-                # (Usando 'or' como en tu captura de pantalla)
                 anyChange = anyChangeAux or anyChange
             # Imprime el estado de los cambios al final de la iteración
             if verbose:
@@ -208,43 +207,43 @@ class SudokuCSP:
         
         print(f"Propagación de restricciones completada después de {iteration - 1} iteraciones.")
 
-    def _select_var_ordered(self, assigment):
+    #Métodos de Búsqueda con Backtracking:
+    def _select_var_ordered(self, assigment): #Selecciona la siguiente variable sin asignar (orden fijo)
             for key in self.cell_keys:
-                if key not in assigment:
+                if key not in assigment: # Si la variable no está asignada aún
                     return key
-            return None
+            return None # Todas las variables están asignadas
         
-    def _is_consistent(self, assigment, var, value):
-            for peer in self.peer_map[var]:
-                if peer in assigment and assigment[peer] == value:
-                    return False
-            return True
+    def _is_consistent(self, assigment, var, value): #Verifica si asignar 'value' a 'var' es consistente con el 'assigment' actual
+            for peer in self.peer_map[var]: # Iteramos sobre los vecinos de 'var'
+                if peer in assigment and assigment[peer] == value: # Si un vecino ya tiene el mismo valor asignado
+                    return False # No es consistente
+            return True # Es consistente
         
-    def _search_bt(self, current_assigment):
-            var = self._select_var_ordered(current_assigment)
-            if var is None:
+    def _search_bt(self, current_assigment): #Búsqueda recursiva con Backtracking 
+            var = self._select_var_ordered(current_assigment) # Selecciona la siguiente variable sin asignar
+            if var is None: # Si no hay más variables por asignar, hemos encontrado una solución
                 for key, val in current_assigment.items():
-                    self.var_doms[key] = {val}
-                return True
-            
-            domain = self.var_doms[var]
-            for value in sorted(list(domain)):
-                if self._is_consistent(current_assigment, var, value):
-                    current_assigment[var] = value
-                    if self._search_bt(current_assigment):
-                        return True
-                    del current_assigment[var]
-            return False
+                    self.var_doms[key] = {val} # Actualiza los dominios con la solución encontrada
+                return True # Solución encontrada
+            domain = self.var_doms[var] # Obtiene el dominio de la variable seleccionada
+            for value in sorted(list(domain)): # Itera sobre los valores posibles en el dominio
+                if self._is_consistent(current_assigment, var, value): # Verifica si la asignación es consistente
+                    current_assigment[var] = value # Asigna el valor a la variable
+                    if self._search_bt(current_assigment): # Llama recursivamente a la búsqueda
+                        return True # Si se encuentra una solución en la recursión, retorna True
+                    del current_assigment[var] # Si no se encontró solución, deshace la asignación (backtrack)
+            return False # No se encontró solución para esta rama
 
 
     def solve(self, verbose=False):
-        """
-        Método principal para resolver el Sudoku.
-        1. Ejecuta Consistence() (propagación fuerte) una vez.
-        2. Si no está resuelto, inicia la búsqueda con Backtracking Clásico.
-        """
+        
+        # Método principal para resolver el Sudoku.
+        # 1. Ejecuta Consistence() una vez.
+        # 2. Si no está resuelto, inicia la búsqueda con Backtracking Clásico.
+        
         print("\nIniciando resolvedor (Paso 1: Propagación de Consistencia)...")
-        self.Consistence(verbose) # Propagación fuerte inicial
+        self.Consistence(verbose) # Propagación inicial
         
         print("Tablero después de la propagación inicial:")
         self.display() 
@@ -256,11 +255,10 @@ class SudokuCSP:
         print("Propagación inicial finalizada.")
         print("Iniciando (Paso 2: Búsqueda con Backtracking Cronológico)...")
         
-        # --- Pre-cargar el 'assignment' inicial ---
         # Recogemos todas las celdas que 'Consistence' ya resolvió.
-        initial_assignment = {}
-        for key in self.cell_keys:
-            if len(self.var_doms[key]) == 1:
+        initial_assignment = {} # Diccionario para la asignación inicial
+        for key in self.cell_keys: # Iteramos sobre todas las celdas
+            if len(self.var_doms[key]) == 1: # Si el dominio tiene un solo valor, es una asignación fija
                 initial_assignment[key] = list(self.var_doms[key])[0]
         
         # Iniciar la búsqueda recursiva
@@ -269,15 +267,15 @@ class SudokuCSP:
         else:
             print("Búsqueda completada. No se encontró solución.")
 
-    # --- Métodos Utilitarios ---
+    # Métodos Utilitarios 
 
     def display(self):
         # Muestra el tablero de Sudoku en un formato legible en la consola.
         print("\nEstado actual del tablero:")
-        # Itera sobre las filas (asumiendo que self.rows = range(1, 10))
+        # Itera sobre las filas (1-9)
         for r in self.rows:
             # Imprime el separador horizontal para las cajas
-            if r in [4, 7]:
+            if r in [4, 7]: 
                 print("------+-------+------") 
             
             line = ""
@@ -301,16 +299,15 @@ class SudokuCSP:
             print(line)
 
     def is_solved(self):
-        """
-        Verifica si todas las celdas tienen un dominio de tamaño 1.
-        """
+        
+        # Verifica si todas las celdas tienen un dominio de tamaño 1.
         for domain in self.var_doms.values():
             if len(domain) > 1:
                 return False
         return True
 
 
-#Bloque para ejecutar el script directamente
+#Bloque para ejecutar el solucionador directamente
 if __name__ == "__main__":
     
     # Ruta al archivo del tablero de Sudoku a cargar
