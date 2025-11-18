@@ -1,5 +1,5 @@
 import itertools as it
-
+import copy
 class SudokuCSP:
     # Inicializa el tablero, sus variables y dominios.
     def __init__(self, board_filepath):
@@ -19,6 +19,10 @@ class SudokuCSP:
                           self._def_cols_constraints() + \
                           self._def_boxes_constraints()
         #Definimos las tuplas de restricciones.
+
+        #Mapa de vecinos:
+        self.peer_map = self.build_peer_map()
+
         self.constraints = []
         for group in self.varsGroups:
             self.constraints.append((self._all_dif, group, "AllDif"))
@@ -66,6 +70,15 @@ class SudokuCSP:
                         ConstraintVars.append(f"{self.cols[i*3+x]}{rows_list[j*3+y]}")
                 BoxesConstraints.append(ConstraintVars)
         return BoxesConstraints
+
+    def build_peer_map(self):
+        peer_map = {key: set() for key in self.cell_keys}
+        for group in self.varsGroups:
+            for var1 in group:
+                for var2 in group:
+                    if var1 != var2:
+                        peer_map[var1].add(var2)
+        return peer_map
 
     #Métodos de Propagación de Restricciones 
 
@@ -195,13 +208,66 @@ class SudokuCSP:
         
         print(f"Propagación de restricciones completada después de {iteration - 1} iteraciones.")
 
+    def _select_var_ordered(self, assigment):
+            for key in self.cell_keys:
+                if key not in assigment:
+                    return key
+            return None
+        
+    def _is_consistent(self, assigment, var, value):
+            for peer in self.peer_map[var]:
+                if peer in assigment and assigment[peer] == value:
+                    return False
+            return True
+        
+    def _search_bt(self, current_assigment):
+            var = self._select_var_ordered(current_assigment)
+            if var is None:
+                for key, val in current_assigment.items():
+                    self.var_doms[key] = {val}
+                return True
+            
+            domain = self.var_doms[var]
+            for value in sorted(list(domain)):
+                if self._is_consistent(current_assigment, var, value):
+                    current_assigment[var] = value
+                    if self._search_bt(current_assigment):
+                        return True
+                    del current_assigment[var]
+            return False
+
 
     def solve(self, verbose=False):
-        # Método principal para resolver el Sudoku usando propagación de restricciones.
-        print("\nIniciando resolvedor (propagación de restricciones)...")
-        self.Consistence(verbose)
-        print("\nPropagación finalizada.")
+        """
+        Método principal para resolver el Sudoku.
+        1. Ejecuta Consistence() (propagación fuerte) una vez.
+        2. Si no está resuelto, inicia la búsqueda con Backtracking Clásico.
+        """
+        print("\nIniciando resolvedor (Paso 1: Propagación de Consistencia)...")
+        self.Consistence(verbose) # Propagación fuerte inicial
+        
+        print("Tablero después de la propagación inicial:")
+        self.display() 
+        
+        if self.is_solved():
+            print("¡Sudoku resuelto solo con propagación de consistencia!")
+            return
 
+        print("Propagación inicial finalizada.")
+        print("Iniciando (Paso 2: Búsqueda con Backtracking Cronológico)...")
+        
+        # --- Pre-cargar el 'assignment' inicial ---
+        # Recogemos todas las celdas que 'Consistence' ya resolvió.
+        initial_assignment = {}
+        for key in self.cell_keys:
+            if len(self.var_doms[key]) == 1:
+                initial_assignment[key] = list(self.var_doms[key])[0]
+        
+        # Iniciar la búsqueda recursiva
+        if self._search_bt(initial_assignment):
+            print("Búsqueda completada. ¡Solución encontrada!")
+        else:
+            print("Búsqueda completada. No se encontró solución.")
 
     # --- Métodos Utilitarios ---
 
@@ -247,28 +313,23 @@ class SudokuCSP:
 #Bloque para ejecutar el script directamente
 if __name__ == "__main__":
     
-    # Define el nombre del archivo que quieres cargar
-    # Asegúrate de que esté en la misma carpeta que este script.
-    board_a_cargar = "board_superdificil_SD6HKBEL.txt" 
+    # Ruta al archivo del tablero de Sudoku a cargar
+    board_a_cargar = "board_imposible_SD9TYJNO.txt" 
 
-    # 1. Crear la instancia (esto carga el tablero y define las restricciones)
+    #Ejecutar el Solucionador
     print(f"\nCargando Sudoku desde '{board_a_cargar}'...")
     sudoku_game = SudokuCSP(board_filepath=board_a_cargar)
     
     print("Tablero Inicial:")
     sudoku_game.display()
-    
-    # 2. Resolver (aplicar propagación de restricciones)
-    # --- MODIFICACIÓN ---
-    # Cambia a verbose=True para ver el detalle de la propagación
+    # 2. Resolver el Sudoku con verbose activado
     sudoku_game.solve(verbose=True) 
     
     # 3. Mostrar el resultado
-    print("\nTablero Final (después de la propagación):")
+    print("\nTablero después de la propagación inicial:")
     sudoku_game.display()
     
     if sudoku_game.is_solved():
-        print("\n¡Sudoku Resuelto exitosamente solo con propagación!")
+        print("\n¡Sudoku Resuelto exitosamente!")
     else:
-        print("\nPropagación completada. El Sudoku no se resolvió solo con esto.")
-        print("Se necesita una búsqueda adicional para completar el Sudoku.")
+        print("\nError: El Sudoku no pudo ser resuelto.")
